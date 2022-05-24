@@ -9,6 +9,8 @@ class ThreeDViewer {
     private camera: THREE.PerspectiveCamera;
     private sizes: { width: number, height: number };
     private controls: OrbitControls;
+    private points: THREE.Vector3[] = [];
+    private instancedMesh!: THREE.InstancedMesh;
 
     constructor(canvasId: string) {
 
@@ -40,7 +42,7 @@ class ThreeDViewer {
         /**
          * Initialize Camera
          */
-        this.camera = new THREE.PerspectiveCamera(75, this.sizes.width / this.sizes.height, 0.1, 1000);
+        this.camera = new THREE.PerspectiveCamera(75, this.sizes.width / this.sizes.height, 0.1, 1000000);
 
         /**
          * Add Orbit Controls
@@ -48,7 +50,7 @@ class ThreeDViewer {
         this.controls = new OrbitControls(this.camera, this.renderer.domElement);
         this.controls.enableDamping = true;
         this.controls.dampingFactor = 0.04;
-        this.camera.position.set(-30, 10, 50);
+        this.camera.position.set(-300, 100, 800);
 
         /**
          * Lights
@@ -64,9 +66,9 @@ class ThreeDViewer {
             this.resize();
         });
 
-        this.animate();
-
         this.addModel();
+
+        this.animate();
 
         /**
          * For Debugging Purposes
@@ -131,14 +133,9 @@ class ThreeDViewer {
         const gltflLoader = new GLTFLoader();
         gltflLoader.load('./swoosh.glb', (gltf) => {
 
-            console.log("Called!!!");
-
-            const points: THREE.Vector3[] = [];
             const nodes = gltf.scene.children[0].children;
 
-            //this.scene.add(gltf.scene);
-
-            points.push(...nodes.map(n => n.position));
+            this.points.push(...nodes.map(n => n.position));
 
             const textureLoader = new THREE.TextureLoader();
             const texture = textureLoader.load('./dot_border2.png');
@@ -174,111 +171,79 @@ class ThreeDViewer {
 
             };
 
-            const scale =
-                this.camera.aspect > 1 ? this.sizes.width / 900 : this.sizes.width / 800;
+            const scale = this.camera.aspect > 1 ? this.sizes.width / 900 : this.sizes.width / 800;
             const dotSize = scale * 8;
 
             const boxGeometry = new THREE.BoxBufferGeometry(dotSize, dotSize, dotSize);
-            const instancedMesh = new THREE.InstancedMesh(boxGeometry, material, points.length);
-            this.scene.add(instancedMesh);
+            this.instancedMesh = new THREE.InstancedMesh(boxGeometry, material, this.points.length);
+            this.scene.add(this.instancedMesh);
 
-            const tempBoxes = new THREE.Object3D();
-            const color = new THREE.Color();
-            const white = new THREE.Color(0xffffff);
-            const currTranslate = new THREE.Vector3();
-            const currRotation = new THREE.Quaternion();
-            const currScale = new THREE.Vector3();
-            const reveal = false;
-            const showAmount = 1;
-            const power = 0.5;
-            const liveCount = 300;
-            const liveEnabled = false;
             const baseColor = Math.floor(Math.random() * 3);
 
-            const randPos = new Array(points.length).fill(0).map(() => {
-                let d, x, y, z;
-                do {
-                    x = Math.random() * 2.0 - 1.0;
-                    y = Math.random() * 2.0 - 1.0;
-                    z = Math.random() * 2.0 - 1.0;
-                    d = x * x + y * y + z * z;
-                } while (d > 1.0);
-                return [x, y, z];
-            });
-            const time = 0;
-            const dimension = Math.round(Math.random());
-
             const offsetArray = Float32Array.from(
-                new Array(points.length)
+                new Array(this.points.length)
                     .fill(0)
                     .flatMap((_, i) => (baseColor === 0 || baseColor === 2 ? 0.5 : 0))
             );
 
             boxGeometry.setAttribute('texIdx', new THREE.BufferAttribute(offsetArray, 1));
 
-            points.forEach((dot, i) => {
-
-                const id = i;
-
-                instancedMesh.getMatrixAt(id, tempBoxes.matrix);
-                tempBoxes.matrix.decompose(currTranslate, currRotation, currScale);
-
-                // set scale
-                const boxScale = THREE.MathUtils.lerp(
-                    currScale.x,
-                    id < Math.pow(showAmount * power, 1) * points.length ? 1 : 0.2,
-                    0.1
-                );
-                tempBoxes.scale.set(boxScale, boxScale, boxScale);
-
-                // set position, when exploded dots float around
-
-                const dist = scale * 2000;
-                const newX = reveal
-                    ? dot.x * scale + randPos[id][0] * dist + Math.sin((time / 10) * randPos[id][0] * Math.PI) * power
-                    : i < liveCount ?
-                        dot.x * scale + (liveEnabled ? Math.tan(
-                            Math.pow(Math.sin(time / 5 + randPos[id][0] * Math.PI), 9)) * 2 * power : 0) : dot.x * scale;
-
-                const newY = reveal
-                    ? dot.y * scale + randPos[id][1] * dist + Math.cos((time / 10) * randPos[id][1] * Math.PI + 100) * power : i < liveCount
-                        ? dot.y * scale + (liveEnabled ? Math.pow(Math.tan(time / 10 + randPos[id][1] * Math.PI * 2), 1) * 1 * power : 0)
-                        : dot.y * scale;
-
-                const newZ = reveal
-                    ? dot.z * scale + randPos[id][2] * dist + Math.sin((time / 10) * randPos[id][2] * Math.PI + 200) * power
-                    : i < liveCount
-                        ? dot.z * scale + (liveEnabled ? Math.tan(Math.pow(Math.sin(time / 5 + randPos[id][2] * Math.PI), 9)) * 2 * power : 0)
-                        : dot.z * scale;
-
-                tempBoxes.position.set(
-                    THREE.MathUtils.lerp(currTranslate.x, newX, 0.05),
-                    THREE.MathUtils.lerp(currTranslate.y, newY, power < 0.9 ? 0.1 : Math.abs(newY - currTranslate.y) > 100 ? 1 : 0.05),
-                    THREE.MathUtils.lerp(currTranslate.z, newZ, 0.05)
-                );
-
-                // copy camera rotation so cubes face the camera
-                if (dimension) {
-                    tempBoxes.rotation.set(0, 0, 0);
-                } else {
-                    tempBoxes.rotation.copy(this.camera.rotation);
-                }
-
-                const uvOffsets = instancedMesh.geometry.getAttribute("texIdx");
-                if (power < 0.1) {
-                    uvOffsets.setX(id, baseColor === 0 || baseColor === 2 ? 0.5 * Math.min(power * 10, 1) : 0);
-                }
-
-                tempBoxes.updateMatrix();
-                instancedMesh.setMatrixAt(id, tempBoxes.matrix);
-            });
-            if (instancedMesh.instanceColor) {
-                instancedMesh.instanceColor.needsUpdate = true;
-            }
-            instancedMesh.geometry.attributes.texIdx.needsUpdate = true;
-            instancedMesh.instanceMatrix.needsUpdate = true;
-
+            this.animateModel();
         });
+
+    }
+
+    animateModel(): void {
+
+        const tempBoxes = new THREE.Object3D();
+        const currTranslate = new THREE.Vector3();
+        const currRotation = new THREE.Quaternion();
+        const currScale = new THREE.Vector3();
+        const showAmount = 1;
+        const power = 1;
+        const scale = this.camera.aspect > 1 ? this.sizes.width / 900 : this.sizes.width / 800;
+
+        const baseColor = Math.floor(Math.random() * 3);
+
+        this.points.forEach((dot, i) => {
+
+            const id = i;
+
+            this.instancedMesh.getMatrixAt(id, tempBoxes.matrix);
+            tempBoxes.matrix.decompose(currTranslate, currRotation, currScale);
+
+            // set scale
+            const boxScale = THREE.MathUtils.lerp(
+                currScale.x,
+                id < Math.pow(showAmount * power, 1) * this.points.length ? 1 : 0.2,
+                0.1
+            );
+            tempBoxes.scale.set(boxScale, boxScale, boxScale);
+
+            // set position, when exploded dots float around
+            const newX = dot.x * scale;
+            const newY = dot.y * scale;
+            const newZ = dot.z * scale;
+
+            tempBoxes.position.set(
+                THREE.MathUtils.lerp(currTranslate.x, newX, power < 0.9 ? 0.1 : Math.abs(newX - currTranslate.x) > 100 ? 1 : 0.05),
+                THREE.MathUtils.lerp(currTranslate.y, newY, power < 0.9 ? 0.1 : Math.abs(newY - currTranslate.y) > 100 ? 1 : 0.05),
+                THREE.MathUtils.lerp(currTranslate.z, newZ, power < 0.9 ? 0.1 : Math.abs(newZ - currTranslate.z) > 100 ? 1 : 0.05)
+            );
+
+            const uvOffsets = this.instancedMesh.geometry.getAttribute("texIdx");
+            if (power < 0.1) {
+                uvOffsets.setX(id, baseColor === 0 || baseColor === 2 ? 0.5 * Math.min(power * 10, 1) : 0);
+            }
+
+            tempBoxes.updateMatrix();
+            this.instancedMesh.setMatrixAt(id, tempBoxes.matrix);
+        });
+        if (this.instancedMesh.instanceColor) {
+            this.instancedMesh.instanceColor.needsUpdate = true;
+        }
+        this.instancedMesh.geometry.attributes.texIdx.needsUpdate = true;
+        this.instancedMesh.instanceMatrix.needsUpdate = true;
 
     }
 
@@ -296,6 +261,9 @@ class ThreeDViewer {
     }
 
     animate(): void {
+
+        if (this.instancedMesh)
+            this.animateModel();
 
         this.controls.update();
 
